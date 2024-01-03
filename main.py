@@ -3,19 +3,30 @@ import json
 from unidecode import unidecode
 from bs4 import BeautifulSoup
 from logger import logger
+from functools import lru_cache
 
 
 class MedicoverScraper:
     BASIC_URL = "https://www.medicover.pl/lekarze"
     API_URL = "https://www.medicover.pl/API/pl/Cms.Widgets.SearchDoctors.Main/AutocompleteFilters"
 
-    def __init__(self, basic_url: str = BASIC_URL, api_url: str = API_URL, pagination_limit=100):
+    def __init__(self, basic_url: str = BASIC_URL, api_url: str = API_URL, pagination_limit=100, use_caching=True):
         self.basic_url = basic_url
         self.api_url = api_url
         self.pagination_limit = pagination_limit
+        self.use_caching = use_caching
+
+    def fetch_data(self, payload: str) -> list:
+        if self.use_caching:
+            return sorted(self._cached_fetch_data(self.api_url, payload))
+        return sorted(self._fetch_data(self.api_url, payload))
+
+    @lru_cache(maxsize=128)
+    def _cached_fetch_data(self, url: str, payload: str) -> list:
+        return self._fetch_data(url, payload)
 
     @staticmethod
-    def get_data(url: str, payload: str) -> list:
+    def _fetch_data(url: str, payload: str) -> list:
         try:
             response = requests.post(url, data=payload)
             response.raise_for_status()
@@ -24,17 +35,21 @@ class MedicoverScraper:
             logger.error(f"Request error: {e}")
             return []
 
-    def fetch_data(self, payload: str) -> list[str]:
-        data = self.get_data(self.api_url, payload)
-        formatted_data = {self.format_entry(entry) for entry in data}
-        return sorted(list(formatted_data))
-
     @staticmethod
     def format_entry(entry: str) -> str:
         return unidecode(entry).replace(' - ', '-').replace(' ', '-').replace('/', '-').lower()
 
+    def scrape_doctors(self, url: str) -> list:
+        if self.use_caching:
+            return self._cached_scrape_doctors(url)
+        return self._scrape_doctors(url)
+
+    @lru_cache(maxsize=128)
+    def _cached_scrape_doctors(self, url: str) -> list:
+        return self._scrape_doctors(url)
+
     @staticmethod
-    def scrape_doctors(url: str) -> list:
+    def _scrape_doctors(url: str) -> list:
         try:
             response = requests.get(url)
             response.raise_for_status()
